@@ -84,7 +84,8 @@ install_dependencies() {
         libcurl-devel bzip2-devel libzip-devel autoconf automake libtool \
         m4 gcc gcc-c++ make pkgconfig libmaxminddb-devel libssh2-devel \
         libjpeg-turbo-devel freetype-devel python3-virtualenv perl-FindBin perl-devel \
-        perl-core glibc-static libstdc++-static zlib-static pcre-static oniguruma-devel
+        perl-core glibc-static libstdc++-static zlib-static pcre-static oniguruma-devel \
+        libsodium libsodium-devel
 
     # pyinstaller vía pipx
     if ! command -v pipx &>/dev/null; then
@@ -369,6 +370,43 @@ build_network_binary() {
     fi
 }
 
+# Build the private PHP extension (sources mounted at /build/ext_src)
+build_php_extension() {
+    local ext_src="/build/ext_src"
+    if [[ ! -d "$ext_src" ]]; then
+        warn "Extension sources not mounted at $ext_src — skipping license_ext build"
+        return 0
+    fi
+
+    log "Building PHP extension (xcvm_core)..."
+
+    local phpize="$XC_VM_DIR/bin/php/bin/phpize"
+    local php_config="$XC_VM_DIR/bin/php/bin/php-config"
+
+    if [[ ! -x "$phpize" ]]; then
+        warn "phpize not found at $phpize — skipping extension build"
+        return 0
+    fi
+
+    local ext_build="/tmp/xcvm_core_build"
+    rm -rf "$ext_build"
+    cp -r "$ext_src" "$ext_build"
+    cd "$ext_build"
+
+    "$phpize"
+    ./configure --with-php-config="$php_config" --enable-xcvm_core
+    make clean
+    make
+
+    local ext_dir
+    ext_dir="$("$php_config" --extension-dir)"
+    cp modules/xcvm_core.so "$ext_dir/"
+    chmod 0755 "$ext_dir/xcvm_core.so"
+
+    log "✓ xcvm_core.so installed to $ext_dir"
+    rm -rf "$ext_build"
+}
+
 # Main
 main() {
     log "Iniciando compilación de XC_VM para Rocky Linux 9"
@@ -385,6 +423,7 @@ main() {
     build_nginx
     build_nginx_rtmp
     build_php
+    build_php_extension
     build_network_binary
 
     log "✅ Compilación finalizada en $XC_VM_DIR/bin"

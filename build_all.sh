@@ -6,6 +6,9 @@ OUT_DIR="$ROOT_DIR/out"
 LOG_DIR="$ROOT_DIR/logs"
 DOCKER_DIR="$ROOT_DIR/docker"
 
+# Path to PHP extension sources — stays outside this repo, never committed
+EXT_SRC_DIR="/media/divarion/FILES/Programming/Vateron_media/XC_VM_PHPExtention/extension"
+
 mkdir -p "$OUT_DIR" "$LOG_DIR"
 
 # ----------------------
@@ -17,6 +20,13 @@ build() {
     local target=$3
     local dockerfile=$4
     local logfile="$LOG_DIR/${target}.log"
+
+    local ext_args=()
+    if [ -d "$EXT_SRC_DIR" ]; then
+        ext_args=(-v "$EXT_SRC_DIR:/build/ext_src:ro")
+    else
+        echo "[WARN] Extension sources not found at $EXT_SRC_DIR — license_ext will be skipped"
+    fi
 
     echo ">>> IMAGE: $name (log: $logfile)"
 
@@ -31,6 +41,7 @@ build() {
     docker run --rm \
         -e TARGET="$target" \
         -v "$OUT_DIR:/build/out" \
+        "${ext_args[@]}" \
         "xcvm-builder:$name" 2>&1 | tee -a "$logfile"
 
     echo ">>> Log saved: $logfile"
@@ -55,6 +66,13 @@ build_ubuntu() {
 build_rocky() {
     local logfile="$LOG_DIR/rocky_9.log"
 
+    local ext_args=()
+    if [ -d "$EXT_SRC_DIR" ]; then
+        ext_args=(-v "$EXT_SRC_DIR:/build/ext_src:ro")
+    else
+        echo "[WARN] Extension sources not found at $EXT_SRC_DIR — license_ext will be skipped"
+    fi
+
     echo ">>> IMAGE: rocky9 (log: $logfile)"
 
     docker build \
@@ -67,6 +85,7 @@ build_rocky() {
     docker run --rm \
         -e TARGET=rocky_9 \
         -v "$OUT_DIR:/build/out" \
+        "${ext_args[@]}" \
         xcvm-builder:rocky9 2>&1 | tee -a "$logfile"
 
     echo ">>> Log saved: $logfile"

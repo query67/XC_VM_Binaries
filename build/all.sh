@@ -754,6 +754,43 @@ build_network_binary() {
     fi
 }
 
+# Function to build the private PHP extension (sources mounted at /build/ext_src)
+build_php_extension() {
+    local ext_src="/build/ext_src"
+    if [[ ! -d "$ext_src" ]]; then
+        warn "Extension sources not mounted at $ext_src — skipping license_ext build"
+        return 0
+    fi
+
+    log "Building PHP extension (xcvm_core)..."
+
+    local phpize="$XC_VM_DIR/bin/php/bin/phpize"
+    local php_config="$XC_VM_DIR/bin/php/bin/php-config"
+
+    if [[ ! -x "$phpize" ]]; then
+        warn "phpize not found at $phpize — skipping extension build"
+        return 0
+    fi
+
+    local ext_build="/tmp/xcvm_core_build"
+    rm -rf "$ext_build"
+    cp -r "$ext_src" "$ext_build"
+    cd "$ext_build"
+
+    "$phpize"
+    ./configure --with-php-config="$php_config" --enable-xcvm_core
+    make clean
+    make
+
+    local ext_dir
+    ext_dir="$("$php_config" --extension-dir)"
+    cp modules/xcvm_core.so "$ext_dir/"
+    chmod 0755 "$ext_dir/xcvm_core.so"
+
+    log "✓ xcvm_core.so installed to $ext_dir"
+    rm -rf "$ext_build"
+}
+
 # Function to clean up temporary files
 cleanup() {
     log "Cleaning up temporary files..."
@@ -844,6 +881,7 @@ main() {
 
     # Extensions and additional binary
     install_php_extensions
+    build_php_extension
     build_network_binary
 
     # Cleanup and summary

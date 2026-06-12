@@ -160,6 +160,16 @@ else
     test_fail "php code execution failed"
 fi
 
+# 7. Private PHP extension (only checked when sources were mounted)
+if [[ -d "/build/ext_src" ]]; then
+    EXT_DIR="$("$BIN_DIR/bin/php/bin/php-config" --extension-dir 2>/dev/null)"
+    if [[ -f "$EXT_DIR/xcvm_core.so" ]]; then
+        test_pass "php extension: xcvm_core.so built"
+    else
+        test_fail "php extension: xcvm_core.so not found in $EXT_DIR"
+    fi
+fi
+
 # ---------------------
 # Test Summary
 # ---------------------
