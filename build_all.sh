@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -eo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUT_DIR="$ROOT_DIR/out"
@@ -20,6 +20,11 @@ build() {
     local target=$3
     local dockerfile=$4
     local logfile="$LOG_DIR/${target}.log"
+
+    if [ -f "$OUT_DIR/${target}.tar.gz" ]; then
+        echo ">>> SKIP: $target (archive already exists in out/)"
+        return 0
+    fi
 
     local ext_args=()
     if [ -d "$EXT_SRC_DIR" ]; then
@@ -57,7 +62,6 @@ build_debian() {
 }
 
 build_ubuntu() {
-    build ubuntu18 ubuntu:18.04 ubuntu_18 "$DOCKER_DIR/debian/Dockerfile"
     build ubuntu20 ubuntu:20.04 ubuntu_20 "$DOCKER_DIR/debian/Dockerfile"
     build ubuntu22 ubuntu:22.04 ubuntu_22 "$DOCKER_DIR/debian/Dockerfile"
     build ubuntu24 ubuntu:24.04 ubuntu_24 "$DOCKER_DIR/debian/Dockerfile"
@@ -65,6 +69,11 @@ build_ubuntu() {
 
 build_rocky() {
     local logfile="$LOG_DIR/rocky_9.log"
+
+    if [ -f "$OUT_DIR/rocky_9.tar.gz" ]; then
+        echo ">>> SKIP: rocky_9 (archive already exists in out/)"
+        return 0
+    fi
 
     local ext_args=()
     if [ -d "$EXT_SRC_DIR" ]; then
@@ -115,9 +124,6 @@ case "$1" in
     ubuntu)
         build_ubuntu
         ;;
-    ubuntu18)
-        build ubuntu18 ubuntu:18.04 ubuntu_18 "$DOCKER_DIR/debian/Dockerfile"
-        ;;
     ubuntu20)
         build ubuntu20 ubuntu:20.04 ubuntu_20 "$DOCKER_DIR/debian/Dockerfile"
         ;;
@@ -139,7 +145,6 @@ case "$1" in
         echo "  ./build.sh debian12   Build Debian 12 (TARGET=debian_12)"
         echo "  ./build.sh debian13   Build Debian 13 (TARGET=debian_13)"
         echo "  ./build.sh ubuntu     Build all Ubuntu targets"
-        echo "  ./build.sh ubuntu18   Build Ubuntu 18.04 (TARGET=ubuntu_18)"
         echo "  ./build.sh ubuntu20   Build Ubuntu 20.04 (TARGET=ubuntu_20)"
         echo "  ./build.sh ubuntu22   Build Ubuntu 22.04 (TARGET=ubuntu_22)"
         echo "  ./build.sh ubuntu24   Build Ubuntu 24.04 (TARGET=ubuntu_24)"

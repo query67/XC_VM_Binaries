@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -eo pipefail
 
 if [ -z "$TARGET" ]; then
     echo "ERROR: TARGET is not set"
@@ -56,17 +56,17 @@ else
     test_fail "nginx binary not found at $BIN_DIR/bin/nginx/sbin/nginx"
 fi
 
-# 2. Version output
-if "$BIN_DIR/bin/nginx/sbin/nginx" -V 2>&1 | grep -q "nginx/"; then
-    NGINX_VER=$("$BIN_DIR/bin/nginx/sbin/nginx" -V 2>&1 | head -1)
+# 2. Version output + 3. Required modules (capture once to avoid pipefail interaction)
+NGINX_V_OUT=$("$BIN_DIR/bin/nginx/sbin/nginx" -V 2>&1 || true)
+if echo "$NGINX_V_OUT" | grep -q "configure arguments:"; then
+    NGINX_VER=$(echo "$NGINX_V_OUT" | head -1)
     test_pass "nginx version: $NGINX_VER"
 else
     test_fail "nginx -V failed"
 fi
 
-# 3. Required modules
 for mod in http_ssl_module http_v2_module http_realip_module http_stub_status_module http_auth_request_module; do
-    if "$BIN_DIR/bin/nginx/sbin/nginx" -V 2>&1 | grep -q "$mod"; then
+    if echo "$NGINX_V_OUT" | grep -q "$mod"; then
         test_pass "nginx module: $mod"
     else
         test_fail "nginx module missing: $mod"
@@ -85,16 +85,16 @@ else
     test_fail "nginx_rtmp binary not found at $BIN_DIR/bin/nginx_rtmp/sbin/nginx_rtmp"
 fi
 
-# 2. Version output
-if "$BIN_DIR/bin/nginx_rtmp/sbin/nginx_rtmp" -V 2>&1 | grep -q "nginx/"; then
-    NGINX_RTMP_VER=$("$BIN_DIR/bin/nginx_rtmp/sbin/nginx_rtmp" -V 2>&1 | head -1)
+# 2. Version output + 3. RTMP/FLV module (capture once to avoid pipefail interaction)
+NGINX_RTMP_V_OUT=$("$BIN_DIR/bin/nginx_rtmp/sbin/nginx_rtmp" -V 2>&1 || true)
+if echo "$NGINX_RTMP_V_OUT" | grep -q "configure arguments:"; then
+    NGINX_RTMP_VER=$(echo "$NGINX_RTMP_V_OUT" | head -1)
     test_pass "nginx_rtmp version: $NGINX_RTMP_VER"
 else
     test_fail "nginx_rtmp -V failed"
 fi
 
-# 3. RTMP/FLV module present
-if "$BIN_DIR/bin/nginx_rtmp/sbin/nginx_rtmp" -V 2>&1 | grep -q "nginx-http-flv-module\|nginx-rtmp-module"; then
+if echo "$NGINX_RTMP_V_OUT" | grep -q "nginx-http-flv-module\|nginx-rtmp-module"; then
     test_pass "nginx_rtmp has RTMP/FLV module"
 else
     test_fail "nginx_rtmp RTMP/FLV module missing"
@@ -162,11 +162,16 @@ fi
 
 # 7. Private PHP extension (only checked when sources were mounted)
 if [[ -d "/build/ext_src" ]]; then
-    EXT_DIR="$("$BIN_DIR/bin/php/bin/php-config" --extension-dir 2>/dev/null)"
-    if [[ -f "$EXT_DIR/xcvm_core.so" ]]; then
-        test_pass "php extension: xcvm_core.so built"
+    XCVM_EXT_DIR="$("$BIN_DIR/bin/php/bin/php-config" --extension-dir 2>/dev/null)"
+    if [[ -f "$XCVM_EXT_DIR/xcvm_core.so" ]]; then
+        test_pass "php extension: xcvm_core.so present"
     else
-        test_fail "php extension: xcvm_core.so not found in $EXT_DIR"
+        test_fail "php extension: xcvm_core.so not found in $XCVM_EXT_DIR"
+    fi
+    if "$BIN_DIR/bin/php/bin/php" -d "extension=$XCVM_EXT_DIR/xcvm_core.so" -r 'echo "ok";' > /dev/null 2>&1; then
+        test_pass "php extension: xcvm_core.so loads"
+    else
+        test_fail "php extension: xcvm_core.so failed to load"
     fi
 fi
 
@@ -219,7 +224,8 @@ chmod 0750 "$BIN_DIR/bin/php/sockets" 2>/dev/null || true
 find "$BIN_DIR/bin/php/var" -type d -exec chmod 750 {} \; 2>/dev/null || true
 chmod 0551 "$BIN_DIR/bin/php/bin/php" 2>/dev/null || true
 chmod 0551 "$BIN_DIR/bin/php/sbin/php-fpm" 2>/dev/null || true
-chmod 0755 "$BIN_DIR/bin/php/lib/php/extensions/no-debug-non-zts-20210902" 2>/dev/null || true
+PHP_EXT_DIR="$("$BIN_DIR/bin/php/bin/php-config" --extension-dir 2>/dev/null)" || true
+[[ -n "$PHP_EXT_DIR" ]] && chmod 0755 "$PHP_EXT_DIR" 2>/dev/null || true
 
 # --- Remove unneeded files ---
 echo "Cleaning up unneeded files..."
@@ -239,6 +245,9 @@ rm -rf "$BIN_DIR/bin/php/lib/php/doc"  2>/dev/null || true
 rm -rf "$BIN_DIR/bin/php/lib/php/test" 2>/dev/null || true
 
 rm -f  "$BIN_DIR/bin/network.py"       2>/dev/null || true
+
+# Remove xcvm_core extension runtime config (created during load test)
+rm -rf "$BIN_DIR/config"               2>/dev/null || true
 
 # --- Remove old archive if exists ---
 if [[ -f "$OUT_DIR/$ARCHIVE_NAME" ]]; then

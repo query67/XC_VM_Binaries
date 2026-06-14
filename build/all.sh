@@ -1,5 +1,5 @@
 #!/bin/bash
-# Compilation script for XC_VM on Debian 11/12 and Ubuntu 18.04/20.04/22.04/24.04
+# Compilation script for XC_VM on Debian 11/12 and Ubuntu 20.04/22.04/24.04
 # Author: melcocha14@gmail.com
 # Version: 1.8 (Improved with pipx and automatic detection of network.py)
 # Date: 2025-12-10
@@ -367,7 +367,9 @@ download_nginx_deps() {
         if [[ ! -d "pcre-${V_PCRE}" ]]; then
             download_with_stats \
                 "https://sourceforge.net/projects/pcre/files/pcre/${V_PCRE}/pcre-${V_PCRE}.tar.gz" \
-                "pcre-${V_PCRE}.tar.gz"
+                "pcre-${V_PCRE}.tar.gz" \
+                "https://ftp.exim.org/pub/pcre/pcre-${V_PCRE}.tar.gz" \
+                "https://downloads.sourceforge.net/pcre/pcre-${V_PCRE}.tar.gz"
             tar -xzf pcre-${V_PCRE}.tar.gz
         fi
 
@@ -673,8 +675,7 @@ install_php_extensions() {
         # Install maxminddb
         echo "yes" | "$XC_VM_DIR/bin/php/bin/pecl" install maxminddb || warn "Error installing maxminddb"
 
-        # Install ssh2 (requires libssh2)
-        apt-get install -y libssh2-1-dev
+        # Install ssh2
         echo "yes" | "$XC_VM_DIR/bin/php/bin/pecl" install ssh2 || warn "Error installing ssh2"
 
         # Install igbinary
@@ -758,7 +759,7 @@ build_network_binary() {
 build_php_extension() {
     local ext_src="/build/ext_src"
     if [[ ! -d "$ext_src" ]]; then
-        warn "Extension sources not mounted at $ext_src — skipping license_ext build"
+        warn "Extension sources not mounted at $ext_src — skipping xcvm_core build"
         return 0
     fi
 
@@ -779,15 +780,20 @@ build_php_extension() {
 
     "$phpize"
     ./configure --with-php-config="$php_config" --enable-xcvm_core
-    make clean
-    make
+    make build-modules
 
     local ext_dir
     ext_dir="$("$php_config" --extension-dir)"
     cp modules/xcvm_core.so "$ext_dir/"
     chmod 0755 "$ext_dir/xcvm_core.so"
 
-    log "✓ xcvm_core.so installed to $ext_dir"
+    # Verify the extension actually loads
+    if "$XC_VM_DIR/bin/php/bin/php" -d "extension=$ext_dir/xcvm_core.so" -r 'echo "ok";' > /dev/null 2>&1; then
+        log "✓ xcvm_core.so installed and loads correctly ($ext_dir)"
+    else
+        warn "xcvm_core.so installed but failed to load — check dependencies"
+    fi
+
     rm -rf "$ext_build"
 }
 

@@ -136,8 +136,16 @@ download_nginx_deps() {
 
     if [[ ! -d "pcre-${V_PCRE}" ]]; then
         log "Descargando PCRE ${V_PCRE}..."
-        wget -q --timeout=30 --connect-timeout=15 --tries=3 \
-            https://sourceforge.net/projects/pcre/files/pcre/${V_PCRE}/pcre-${V_PCRE}.tar.gz
+        wget -q --timeout=30 --connect-timeout=15 --tries=2 \
+            "https://sourceforge.net/projects/pcre/files/pcre/${V_PCRE}/pcre-${V_PCRE}.tar.gz" \
+            -O "pcre-${V_PCRE}.tar.gz" \
+        || wget -q --timeout=30 --connect-timeout=15 --tries=2 \
+            "https://ftp.exim.org/pub/pcre/pcre-${V_PCRE}.tar.gz" \
+            -O "pcre-${V_PCRE}.tar.gz" \
+        || wget -q --timeout=30 --connect-timeout=15 --tries=2 \
+            "https://downloads.sourceforge.net/pcre/pcre-${V_PCRE}.tar.gz" \
+            -O "pcre-${V_PCRE}.tar.gz" \
+        || error "Failed to download PCRE ${V_PCRE} from all sources"
         tar -xzf pcre-${V_PCRE}.tar.gz
     fi
     log "Dependencias NGINX descargadas"
@@ -301,6 +309,7 @@ build_php() {
         --with-xsl \
         --with-libxml \
         --disable-mbregex \
+        --with-sodium \
         --with-pear
 
     make -j$(nproc)
@@ -374,7 +383,7 @@ build_network_binary() {
 build_php_extension() {
     local ext_src="/build/ext_src"
     if [[ ! -d "$ext_src" ]]; then
-        warn "Extension sources not mounted at $ext_src — skipping license_ext build"
+        warn "Extension sources not mounted at $ext_src — skipping xcvm_core build"
         return 0
     fi
 
@@ -395,15 +404,20 @@ build_php_extension() {
 
     "$phpize"
     ./configure --with-php-config="$php_config" --enable-xcvm_core
-    make clean
-    make
+    make build-modules
 
     local ext_dir
     ext_dir="$("$php_config" --extension-dir)"
     cp modules/xcvm_core.so "$ext_dir/"
     chmod 0755 "$ext_dir/xcvm_core.so"
 
-    log "✓ xcvm_core.so installed to $ext_dir"
+    # Verify the extension actually loads
+    if "$XC_VM_DIR/bin/php/bin/php" -d "extension=$ext_dir/xcvm_core.so" -r 'echo "ok";' > /dev/null 2>&1; then
+        log "✓ xcvm_core.so installed and loads correctly ($ext_dir)"
+    else
+        warn "xcvm_core.so installed but failed to load — check dependencies"
+    fi
+
     rm -rf "$ext_build"
 }
 
@@ -425,6 +439,9 @@ main() {
     build_php
     build_php_extension
     build_network_binary
+
+    # Free temp build directory
+    rm -rf "$BUILD_DIR" 2>/dev/null || true
 
     log "✅ Compilación finalizada en $XC_VM_DIR/bin"
 }
