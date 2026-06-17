@@ -6,8 +6,10 @@ OUT_DIR="$ROOT_DIR/out"
 LOG_DIR="$ROOT_DIR/logs"
 DOCKER_DIR="$ROOT_DIR/docker"
 
-# Path to PHP extension sources — stays outside this repo, never committed
-EXT_SRC_DIR="/media/divarion/FILES/Programming/Vateron_media/XC_VM_PHPExtention/extension"
+# Path to PHP extension sources — stays outside this repo, never committed.
+# Overridable via the EXT_SRC_DIR env var; defaults to the XC_VM_CoreExtention repo
+# checked out alongside this one.
+EXT_SRC_DIR="${EXT_SRC_DIR:-$ROOT_DIR/../XC_VM_CoreExtention/extension}"
 
 mkdir -p "$OUT_DIR" "$LOG_DIR"
 
