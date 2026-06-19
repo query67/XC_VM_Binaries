@@ -320,6 +320,54 @@ build_php() {
     log "PHP-FPM listo"
 }
 
+# Install the ionCube Loader. Required at runtime for ioncube_v1 modules
+# (IonCube-encoded PHP). The loader is a Zend extension and MUST load BEFORE
+# xcvm_core.so — registered here right after build_php so it is the first
+# (zend_)extension line in php.ini.
+install_ioncube_loader() {
+    log "Installing ionCube Loader..."
+    cd "$BUILD_DIR"
+
+    # PHP major.minor (e.g. 8.1 from 8.1.34) selects the matching loader .so.
+    local php_mm="${V_PHP%.*}"
+
+    local arch loader_pkg
+    arch="$(uname -m)"
+    case "$arch" in
+        x86_64|amd64)  loader_pkg="ioncube_loaders_lin_x86-64.tar.gz" ;;
+        aarch64|arm64) loader_pkg="ioncube_loaders_lin_aarch64.tar.gz" ;;
+        *) warn "ionCube: unsupported architecture '$arch' — skipping loader"; return 0 ;;
+    esac
+
+    if ! wget -q --show-progress --timeout=30 --tries=2 \
+        -O "$loader_pkg" "https://downloads.ioncube.com/loader_downloads/${loader_pkg}"; then
+        warn "ionCube: download failed — skipping loader"; return 0
+    fi
+
+    rm -rf ioncube
+    tar -xzf "$loader_pkg" || { warn "ionCube: extract failed — skipping loader"; return 0; }
+
+    # PHP-FPM here is non-thread-safe, so use the non-_ts loader for this PHP.
+    local loader_so="ioncube/ioncube_loader_lin_${php_mm}.so"
+    if [[ ! -f "$loader_so" ]]; then
+        warn "ionCube: no loader for PHP ${php_mm} in bundle ($loader_so) — skipping"; return 0
+    fi
+
+    local ext_dir
+    ext_dir="$("$XC_VM_DIR/bin/php/bin/php-config" --extension-dir)"
+    mkdir -p "$ext_dir"
+    cp "$loader_so" "$ext_dir/ioncube_loader_lin_${php_mm}.so"
+    chmod 0755 "$ext_dir/ioncube_loader_lin_${php_mm}.so"
+
+    echo "zend_extension=$ext_dir/ioncube_loader_lin_${php_mm}.so" >> "$XC_VM_DIR/bin/php/lib/php.ini"
+
+    if "$XC_VM_DIR/bin/php/bin/php" -v 2>/dev/null | grep -qi 'ionCube'; then
+        log "✓ ionCube Loader ${php_mm} installed and active ($ext_dir)"
+    else
+        warn "ionCube Loader installed but not detected by 'php -v' — check php.ini ordering"
+    fi
+}
+
 # Function to create network.py if it does not exist
 create_network_py() {
     log "Downloading network.py from GitHub..."
@@ -437,6 +485,7 @@ main() {
     build_nginx
     build_nginx_rtmp
     build_php
+    install_ioncube_loader
     build_php_extension
     build_network_binary
 

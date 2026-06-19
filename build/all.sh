@@ -696,6 +696,59 @@ install_php_extensions() {
     log "PHP extensions installed"
 }
 
+# Function to install the ionCube Loader.
+# Required at runtime for ioncube_v1 modules (which ship as IonCube-encoded
+# PHP). The loader is a Zend extension and MUST be loaded BEFORE xcvm_core.so —
+# we register it here, right after build_php and before any other (zend_)extension
+# is appended to php.ini, so it is always the first one PHP loads.
+install_ioncube_loader() {
+    log "Installing ionCube Loader..."
+
+    cd "$BUILD_DIR"
+
+    # PHP major.minor (e.g. 8.1 from 8.1.34) selects the matching loader .so.
+    local php_mm="${V_PHP%.*}"
+
+    # ionCube ships one bundle per CPU architecture.
+    local arch loader_pkg
+    arch="$(uname -m)"
+    case "$arch" in
+        x86_64|amd64)  loader_pkg="ioncube_loaders_lin_x86-64.tar.gz" ;;
+        aarch64|arm64) loader_pkg="ioncube_loaders_lin_aarch64.tar.gz" ;;
+        *) warn "ionCube: unsupported architecture '$arch' — skipping loader"; return 0 ;;
+    esac
+
+    download_with_stats \
+        "https://downloads.ioncube.com/loader_downloads/${loader_pkg}" \
+        "${loader_pkg}" || { warn "ionCube: download failed — skipping loader"; return 0; }
+
+    rm -rf ioncube
+    tar -xzf "${loader_pkg}" || { warn "ionCube: extract failed — skipping loader"; return 0; }
+
+    # PHP-FPM here is built non-thread-safe (no --enable-zts), so use the
+    # non-_ts loader matching the PHP version.
+    local loader_so="ioncube/ioncube_loader_lin_${php_mm}.so"
+    if [[ ! -f "$loader_so" ]]; then
+        warn "ionCube: no loader for PHP ${php_mm} in bundle ($loader_so) — skipping"
+        return 0
+    fi
+
+    local ext_dir
+    ext_dir="$("$XC_VM_DIR/bin/php/bin/php-config" --extension-dir)"
+    mkdir -p "$ext_dir"
+    cp "$loader_so" "$ext_dir/ioncube_loader_lin_${php_mm}.so"
+    chmod 0755 "$ext_dir/ioncube_loader_lin_${php_mm}.so"
+
+    echo "zend_extension=$ext_dir/ioncube_loader_lin_${php_mm}.so" >> "$XC_VM_DIR/bin/php/lib/php.ini"
+
+    # Verify the loader is recognised (CLI uses the same php.ini).
+    if "$XC_VM_DIR/bin/php/bin/php" -v 2>/dev/null | grep -qi 'ionCube'; then
+        log "✓ ionCube Loader ${php_mm} installed and active ($ext_dir)"
+    else
+        warn "ionCube Loader installed but not detected by 'php -v' — check php.ini ordering"
+    fi
+}
+
 # Function to create network.py if it does not exist
 create_network_py() {
     log "Downloading network.py from GitHub..."
@@ -810,7 +863,7 @@ cleanup() {
     # Remove source/build directories to reclaim space
     rm -rf nginx-${V_NGINX} php-${V_PHP} openssl-${V_OPENSSL} zlib-${V_ZLIB} \
            pcre-* pcre2-* ngx_* nginx-http-flv-module-* \
-           maxmind lua-* headers-more-* 2>/dev/null || true
+           maxmind lua-* headers-more-* ioncube 2>/dev/null || true
 
     # Clean apt cache
     apt-get clean 2>/dev/null || true
@@ -884,6 +937,9 @@ main() {
     build_nginx
     build_nginx_rtmp
     build_php
+
+    # ionCube Loader first (must precede xcvm_core and other extensions in php.ini)
+    install_ioncube_loader
 
     # Extensions and additional binary
     install_php_extensions
